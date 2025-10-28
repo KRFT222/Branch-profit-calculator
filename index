@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Branch Profit Calculator</title>
+  <!-- Tailwind for quick styling (CDN for pilot) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React + ReactDOM (UMD builds) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel to run JSX in the browser (fine for demos) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ====== Your component (from the canvas) ======
+    const { useMemo, useState } = React;
+
+    function BranchProfitCalculator() {
+      const CONFIG = {
+        revenueBpsConventional: 240,
+        revenueBpsGovernment: 300,
+        feeRevenuePerLoan: 600, // net fee per loan
+        directProductionBps: 20,
+        operationsBps: 50,
+      };
+
+      const [avgMonthlyVolume, setAvgMonthlyVolume] = useState(2500000);
+      const [unitsPerMonth, setUnitsPerMonth] = useState(12);
+      const [govPercent, setGovPercent] = useState(30);
+      const [avgCommissionBps, setAvgCommissionBps] = useState(125);
+      const [spendLeads, setSpendLeads] = useState(3000);
+      const [spendMarketing, setSpendMarketing] = useState(2000);
+      const [spendRent, setSpendRent] = useState(4500);
+
+      const results = useMemo(() => {
+        const vol = Number(avgMonthlyVolume) || 0;
+        const units = Number(unitsPerMonth) || 0;
+        const govPct = clamp(Number(govPercent) || 0, 0, 100) / 100;
+        const convPct = 1 - govPct;
+
+        const govVolume = vol * govPct;
+        const convVolume = vol * convPct;
+
+        const revFromConv = convVolume * (CONFIG.revenueBpsConventional / 10000);
+        const revFromGov = govVolume * (CONFIG.revenueBpsGovernment / 10000);
+        const feeRevenue = units * CONFIG.feeRevenuePerLoan;
+
+        const totalRevenue = revFromConv + revFromGov + feeRevenue;
+
+        const commissionExpense = vol * ((Number(avgCommissionBps) || 0) / 10000);
+        const directProdExpense = vol * (CONFIG.directProductionBps / 10000);
+        const operationsExpense = vol * (CONFIG.operationsBps / 10000);
+
+        const fixedExpenses =
+          (Number(spendLeads) || 0) +
+          (Number(spendMarketing) || 0) +
+          (Number(spendRent) || 0);
+
+        const totalExpenses =
+          commissionExpense + directProdExpense + operationsExpense + fixedExpenses;
+
+        const ebitda = totalRevenue - totalExpenses;
+        const ebitdaMarginOnVolume = vol > 0 ? (ebitda / vol) * 100 : 0;
+
+        return { ebitda, ebitdaMarginOnVolume };
+      }, [avgMonthlyVolume, unitsPerMonth, govPercent, avgCommissionBps, spendLeads, spendMarketing, spendRent]);
+
+      return (
+        <div className="min-h-screen w-full bg-gray-50 text-gray-900 p-6">
+          <div className="max-w-4xl mx-auto">
+            <header className="mb-6">
+              <h1 className="text-3xl font-bold tracking-tight">Branch Profit Calculator</h1>
+              <p className="text-sm text-gray-600 mt-1">
+                A quick, assumption-driven model to show candidates what they might be <span className="italic">leaving on the table</span> by not running their production on our platform.
+              </p>
+            </header>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <section className="bg-white rounded-2xl shadow p-5 space-y-4">
+                <h2 className="text-xl font-semibold">Inputs</h2>
+
+                <NumberField label="Average monthly funded volume ($)" value={avgMonthlyVolume} onChange={setAvgMonthlyVolume} min={0} step={50000} />
+                <NumberField label="Closed loans per month (units)" value={unitsPerMonth} onChange={setUnitsPerMonth} min={0} step={1} />
+                <SliderField label="Government mix (%)" value={govPercent} onChange={setGovPercent} min={0} max={100} step={1} helper={`Conventional automatically set to ${(100 - clamp(govPercent, 0, 100)).toFixed(0)}%`} />
+                <NumberField label="Average LO commission (bps on volume)" value={avgCommissionBps} onChange={setAvgCommissionBps} min={0} step={5} />
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <CurrencyField label="Leads spend (monthly)" value={spendLeads} onChange={setSpendLeads} />
+                  <CurrencyField label="Marketing spend (monthly)" value={spendMarketing} onChange={setSpendMarketing} />
+                  <CurrencyField label="Rent/Overhead (monthly)" value={spendRent} onChange={setSpendRent} />
+                </div>
+              </section>
+
+              <section className="bg-white rounded-2xl shadow p-5 space-y-4 flex flex-col justify-center items-center">
+                <h2 className="text-xl font-semibold">Estimated Monthly Profit</h2>
+                <div className="text-4xl font-bold text-green-700">{fmtCurrency(results.ebitda)}</div>
+                <div className="text-gray-600">EBITDA Margin: {results.ebitdaMarginOnVolume.toFixed(2)}%</div>
+                <p className="text-sm text-gray-500 text-center mt-3">
+                  This is an approximate monthly profit your branch could generate based on your inputs and our platform assumptions.
+                </p>
+              </section>
+            </div>
+
+            <footer className="mt-6 text-xs text-gray-500">
+              <p>Directional model. Excludes taxes, GAAP nuances, warehouse interest timing, repurchase reserves, etc.</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    function NumberField({ label, value, onChange, min = 0, step = 1 }) {
+      return (
+        <label className="block text-sm">
+          <span className="text-gray-700">{label}</span>
+          <input type="number" inputMode="decimal" className="mt-1 w-full rounded-xl border px-3 py-2"
+            value={value} min={min} step={step} onChange={(e) => onChange(Number(e.target.value))} />
+        </label>
+      );
+    }
+
+    function CurrencyField({ label, value, onChange }) {
+      return (
+        <label className="block text-sm">
+          <span className="text-gray-700">{label}</span>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="px-2 py-2 rounded-l-xl border border-r-0 bg-gray-50">$</span>
+            <input type="number" inputMode="decimal" className="w-full rounded-r-xl border px-3 py-2"
+              value={value} min={0} step={50} onChange={(e) => onChange(Number(e.target.value))} />
+          </div>
+        </label>
+      );
+    }
+
+    function SliderField({ label, value, onChange, min, max, step, helper }) {
+      return (
+        <label className="block text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-700">{label}</span>
+            <span className="text-gray-800 font-medium tabular-nums">{value}%</span>
+          </div>
+          <input type="range" className="mt-2 w-full" value={value} min={min} max={max} step={step}
+            onChange={(e) => onChange(Number(e.target.value))} />
+          {helper && <div className="text-xs text-gray-500 mt-1">{helper}</div>}
+        </label>
+      );
+    }
+
+    function fmtCurrency(n) {
+      return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    // Mount
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<BranchProfitCalculator />);
+  </script>
+</body>
+</html>
+ 
